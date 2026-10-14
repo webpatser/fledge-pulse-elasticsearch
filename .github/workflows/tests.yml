@@ -1,0 +1,82 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.19.19
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: 'false'
+          ES_JAVA_OPTS: -Xms512m -Xmx512m
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd="curl -fsS http://localhost:9200/_cluster/health"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=30
+          --health-start-period=20s
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: dom, curl, libxml, mbstring, pdo, pdo_sqlite, sqlite3, sockets, pcntl, zip, ffi
+          ini-values: error_reporting=E_ALL
+          tools: composer:v2
+          coverage: none
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-php8.5-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ runner.os }}-php8.5-
+
+      # Source install: the contract suite lives in fledge-pulse's tests/Contract,
+      # and fledge-pulse's .gitattributes marks /tests export-ignore, so a dist
+      # archive would not contain it. composer.json already sets
+      # config.preferred-install { "webpatser/fledge-pulse": "source", "*": "dist" },
+      # which clones only that package from git. Do not pass --prefer-dist or
+      # --prefer-source here: either flag overrides that per-package setting and
+      # applies to every package.
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress
+
+      - name: Verify the contract suite is installed
+        run: test -f vendor/webpatser/fledge-pulse/tests/Contract/StorageContract.php
+
+      - name: Wait for Elasticsearch
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s" > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Elasticsearch did not become healthy" >&2
+          exit 1
+
+      - name: Run tests
+        run: vendor/bin/pest
+        env:
+          ES_HOST: http://localhost:9200
