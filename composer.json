@@ -21,7 +21,7 @@
     ],
     "require": {
         "php": "^8.5",
-        "elasticsearch/elasticsearch": "^8.17",
+        "elasticsearch/elasticsearch": "^9.5",
         "webpatser/fledge-fiber": "^13.38",
         "webpatser/fledge-pulse": "^1.8.1.0"
     },
