@@ -41,7 +41,7 @@ Options live under `pulse.storage.elasticsearch` in `config/pulse.php`. Only lis
         'bulk_chunk' => (int) env('PULSE_ES_BULK_CHUNK', 1000),
         'bulk_retries' => (int) env('PULSE_ES_BULK_RETRIES', 3),
         'bulk_backoff_ms' => (int) env('PULSE_ES_BULK_BACKOFF_MS', 500),
-        'deduplicate_entries' => (bool) env('PULSE_ES_DEDUPLICATE_ENTRIES', true),
+        'deduplicate_entries' => env('PULSE_ES_DEDUPLICATE_ENTRIES'), // null: only with the redis ingest
         'terms_shard_size' => env('PULSE_ES_TERMS_SHARD_SIZE'), // null: max(10000, limit * 50)
         'timeout' => (float) env('PULSE_ES_TIMEOUT', 10),
         'connect_timeout' => (float) env('PULSE_ES_CONNECT_TIMEOUT', 2),
@@ -66,10 +66,30 @@ Entries and values are sent in separate `_bulk` requests of at most `bulk_chunk`
 
 Documents rejected with 429 (`es_rejected_execution_exception`, the cluster's write queue is full) are resent up to `bulk_retries` times, waiting `bulk_backoff_ms` and then twice as long each time, before `store()` throws. The wait suspends only the current fiber.
 
-With `deduplicate_entries` every entry gets a deterministic `_id` (a hash chain over the batch: its own content and every entry before it) and is written with `create`. When `store()` throws halfway, the Redis ingest keeps the batch and stores it again later; the entries that already made it in come back as version conflicts and are skipped, so nothing counts twice. Residual risks:
+With entry deduplication every entry gets a deterministic `_id` (a hash chain over the batch: its own content and every entry before it) and is written with `create`. When `store()` throws halfway, the Redis ingest keeps the batch and stores it again later; the entries that already made it in come back as version conflicts and are skipped, so nothing counts twice. Residual risks:
 
 - ids are unique per backing index, so a retried batch that lands in a newer backing index (after a daily rollover in between) is not deduplicated;
-- two separately stored batches that start with an identical run of entries in the same second (two identical requests, each digested on its own) share those ids, and the second run is dropped. Set `deduplicate_entries` to `false` if that matters more to you than retries; Elasticsearch then generates the ids.
+- two separately stored batches that start with an identical run of entries in the same second (two identical requests, each digested on its own) share those ids, and the second run is dropped.
+
+`deduplicate_entries` unset (`null`, the default) turns deduplication on only when `pulse.ingest.driver` is `redis`. With the storage ingest (Pulse's default) every request is stored on its own and Pulse never stores a failed batch again, so Elasticsearch generates the ids and identical requests never collapse, as with upstream's auto-increment rows. The trade-off of this default: the Elasticsearch transport itself resends a `_bulk` request that timed out on the network when several hosts are configured or the client's `retries` option is set, and without ids such a resend can count entries twice. If your setup retries (several hosts, `retries`, or a custom ingest driver that redelivers batches), set `PULSE_ES_DEDUPLICATE_ENTRIES=true`. `true` or `false` forces it either way; `pulse:elasticsearch:install` warns when it is forced on with the storage ingest.
+
+#### Upgrading from a release that deduplicated by default
+
+Earlier releases defaulted `deduplicate_entries` to `true` for every ingest. Nothing in Elasticsearch changes: the mappings and the index template are the same, no reindex or migration is needed, and entries already stored stay readable as they are (their ids are only used on write). What changes is the write path of an application on the storage ingest that never set the option: new entries get generated ids, so identical requests in the same second now count separately. Entries that were collapsed before the upgrade stay collapsed. To keep the old behaviour, set `PULSE_ES_DEDUPLICATE_ENTRIES=true`.
+
+**Upgrade step:** if you published the config earlier (`config/pulse.php` under `pulse.storage.elasticsearch`), it still contains the old default, which keeps deduplication forced on whatever the ingest driver is:
+
+```php
+'deduplicate_entries' => (bool) env('PULSE_ES_DEDUPLICATE_ENTRIES', true),
+```
+
+Change that line to the new one to get the driver-dependent default:
+
+```php
+'deduplicate_entries' => env('PULSE_ES_DEDUPLICATE_ENTRIES'),
+```
+
+The warning of `pulse:elasticsearch:install` only shows when you rerun it, so do not wait for it. No reindex is needed, and entries collapsed before the upgrade stay collapsed.
 
 ## Resources
 
