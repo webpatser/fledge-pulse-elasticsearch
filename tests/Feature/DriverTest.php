@@ -32,7 +32,7 @@ it('fills pulse.storage.elasticsearch with defaults without overriding the appli
         'bulk_chunk' => 1000,
         'bulk_retries' => 3,
         'bulk_backoff_ms' => 500,
-        'deduplicate_entries' => true,
+        'deduplicate_entries' => null,
         'terms_shard_size' => null,
         'timeout' => 10.0,
         'connect_timeout' => 2.0,

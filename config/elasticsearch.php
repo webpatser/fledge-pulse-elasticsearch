@@ -57,9 +57,11 @@ return [
     // in the batch), so a batch stored again after a failed store() (the
     // Redis ingest keeps it and retries) does not count twice. Trade-off:
     // two separately stored batches whose leading entries are identical,
-    // in the same second, collapse into one. Disable to let Elasticsearch
-    // generate ids (no deduplication, no collapsing).
-    'deduplicate_entries' => (bool) env('PULSE_ES_DEDUPLICATE_ENTRIES', true),
+    // in the same second, collapse into one. null (the default) turns it on
+    // only with `pulse.ingest.driver` set to `redis`; the storage ingest
+    // never retries, so it lets Elasticsearch generate the ids, like
+    // upstream's auto-increment rows. true or false forces it either way.
+    'deduplicate_entries' => env('PULSE_ES_DEDUPLICATE_ENTRIES'),
 
     // Candidate keys per shard for ordered key lists (aggregate(),
     // aggregateTypes()). null means max(10000, limit * 50). The chosen keys

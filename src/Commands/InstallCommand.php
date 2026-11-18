@@ -6,6 +6,7 @@ use Elastic\Elasticsearch\Exception\ElasticsearchException;
 use Elastic\Transport\Exception\TransportException;
 use Fledge\Pulse\Elasticsearch\Installer;
 use Fledge\Pulse\Elasticsearch\InstallException;
+use Fledge\Pulse\Elasticsearch\Schema;
 use Illuminate\Console\Command;
 use Symfony\Component\Console\Attribute\AsCommand;
 
@@ -29,8 +30,15 @@ class InstallCommand extends Command
     /**
      * Handle the command.
      */
-    public function handle(Installer $installer): int
+    public function handle(Installer $installer, Schema $schema): int
     {
+        if ($schema->deduplicatesWithoutRetries()) {
+            $this->components->warn(
+                'pulse.storage.elasticsearch.deduplicate_entries is on with the storage ingest, which never retries a batch: '
+                .'identical requests stored in the same second collapse into one. Unset it to deduplicate only with the redis ingest.'
+            );
+        }
+
         try {
             $steps = $installer->install();
         } catch (ElasticsearchException|TransportException|InstallException $e) {

@@ -100,9 +100,33 @@ class Schema
         return max(0, (int) $this->option('bulk_backoff_ms', 500));
     }
 
+    /**
+     * Whether entries get deterministic ids. Unset (null) means: only with
+     * the Redis ingest, the one ingest that stores a failed batch again.
+     * The storage ingest digests every request on its own and never
+     * retries, so ids there would only collapse identical requests.
+     */
     public function deduplicateEntries(): bool
     {
-        return (bool) $this->option('deduplicate_entries', true);
+        $configured = $this->option('deduplicate_entries');
+
+        if ($configured === null || $configured === '') {
+            return $this->config->get('pulse.ingest.driver') === 'redis';
+        }
+
+        return (bool) $configured;
+    }
+
+    /**
+     * Deduplication forced on while the storage ingest is in use: identical
+     * requests in the same second collapse and nothing is ever retried.
+     */
+    public function deduplicatesWithoutRetries(): bool
+    {
+        $configured = $this->option('deduplicate_entries');
+
+        return $configured !== null && $configured !== '' && (bool) $configured
+            && $this->config->get('pulse.ingest.driver') === 'storage';
     }
 
     /**

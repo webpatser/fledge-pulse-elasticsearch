@@ -189,7 +189,8 @@ it('does not send the remaining chunks after a rejected one', function () {
 });
 
 it('sends one bulk request per bulk_chunk operations', function (int $chunk, int $entries, int $values, array $perRequest) {
-    config(['pulse.storage.elasticsearch.bulk_chunk' => $chunk]);
+    // The redis ingest turns on deterministic entry ids, asserted below.
+    config(['pulse.ingest.driver' => 'redis', 'pulse.storage.elasticsearch.bulk_chunk' => $chunk]);
 
     $storage = bulkStorage(array_map(fn () => bulkOk(), $perRequest), $history, $mock);
 

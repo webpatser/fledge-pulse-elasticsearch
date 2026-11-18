@@ -80,8 +80,36 @@ function reviewActions(array $transaction): array
     ));
 }
 
+it('deduplicates entries by default only with the redis ingest', function (string $ingest, ?bool $configured, bool $ids) {
+    config(['pulse.ingest.driver' => $ingest]);
+
+    // null: keep the package default merged in at boot.
+    if ($configured !== null) {
+        config(['pulse.storage.elasticsearch.deduplicate_entries' => $configured]);
+    }
+
+    $storage = reviewMockedStorage([
+        reviewEsResponse(['took' => 1, 'errors' => false, 'items' => [
+            ['create' => ['_index' => 'e', 'status' => 201]],
+        ]]),
+    ], $history);
+
+    $storage->store(collect([reviewEntry('a')]));
+
+    expect($history)->toHaveCount(1)
+        ->and(array_key_exists('_id', reviewActions($history[0])[0]['create']))->toBe($ids);
+})->with([
+    'storage ingest, default' => ['storage', null, false],
+    'redis ingest, default' => ['redis', null, true],
+    'storage ingest, forced on' => ['storage', true, true],
+    'redis ingest, forced off' => ['redis', false, false],
+]);
+
 it('resends only the documents rejected with 429, then succeeds', function () {
-    config(['pulse.storage.elasticsearch.bulk_backoff_ms' => 1]);
+    config([
+        'pulse.ingest.driver' => 'redis',
+        'pulse.storage.elasticsearch.bulk_backoff_ms' => 1,
+    ]);
 
     $storage = reviewMockedStorage([
         reviewEsResponse(['took' => 1, 'errors' => true, 'items' => [

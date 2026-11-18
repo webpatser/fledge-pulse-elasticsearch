@@ -124,7 +124,29 @@ it('stays exact with a tiny terms_shard_size thanks to the exact second pass', f
         ->and(collect($rows)->every(fn (array $row) => $row['count'] === ($row['key'] === 'x' ? 11 : 10)))->toBeTrue();
 });
 
+it('counts identical requests stored separately with the storage ingest', function () {
+    // The default: Pulse's storage ingest digests every request on its own
+    // and never retries a batch, so there is nothing to deduplicate.
+    config(['pulse.ingest.driver' => 'storage']);
+
+    app(Installer::class)->install();
+
+    $storage = reviewStorage();
+
+    // Two requests in the same second that recorded the same entry.
+    $storage->store(collect([reviewHit('a')]));
+    $storage->store(collect([reviewHit('a')]));
+    reviewRefresh();
+
+    expect(reviewRows($storage->aggregate('hit', 'count', CarbonInterval::hour())))->toBe([
+        ['key' => 'a', 'count' => 2],
+    ]);
+});
+
 it('does not count a batch twice when it is stored again', function () {
+    // The Redis ingest keeps a batch whose store() failed and stores it again.
+    config(['pulse.ingest.driver' => 'redis']);
+
     app(Installer::class)->install();
 
     $storage = reviewStorage();
